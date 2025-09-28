@@ -1,141 +1,331 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Sunrise Harvest Jump</title>
-  <style>
-    body {
-      margin: 0;
-      background: #bfe6ff;
-      overflow: hidden;
-      font-family: "Arial Rounded MT Bold", sans-serif;
-      text-align: center;
-    }
-    canvas { display:block; margin:0 auto; background:#bfe6ff; }
-    #ui {
-      position:absolute;
-      top:10px; left:50%;
-      transform:translateX(-50%);
-      display:flex; gap:12px;
-      z-index:10;
-    }
-    .pill {
-      background:#ffffffcc;
-      border:2px solid #00000014;
-      border-radius:999px;
-      padding:8px 14px;
-      font-weight:bold;
-      box-shadow:0 6px 14px rgba(0,0,0,.08);
-    }
-    .btn {
-      cursor:pointer;
-      transition:all .12s ease;
-    }
-    .btn:hover { transform:translateY(-1px); box-shadow:0 10px 20px rgba(0,0,0,.12);}
-    .btn:active{ transform:translateY(0); box-shadow:0 6px 14px rgba(0,0,0,.08);}
-  </style>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+<title>Sunrise Harvest Jump</title>
+<style>
+  html,body{height:100%;margin:0;background:#0b1222;font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
+  .wrap{display:grid;place-items:center;min-height:100dvh}
+  .stage{
+    width:min(100vw,1000px);
+    padding:18px 20px 24px;
+    border-radius:16px;
+    box-shadow:0 18px 50px rgba(0,0,0,.45);
+    background:linear-gradient(#cfe7ff,#9ec6f0);
+  }
+  canvas{
+    display:block;
+    width:min(100%,900px);
+    height:min(70vh,520px);
+    max-height:520px;
+    border-radius:14px;
+    background:#bfe6ff; /* backup sky */
+    touch-action:none;
+    margin:0 auto;
+  }
+  .hud{display:flex;gap:10px;justify-content:center;margin-bottom:12px;flex-wrap:wrap}
+  .pill{background:#ffffffcc;border:2px solid #00000014;border-radius:999px;padding:6px 12px;font-weight:700}
+  .btn{cursor:pointer}
+  /* Modals */
+  .modal{position:fixed;inset:0;display:none;place-items:center;background:rgba(0,0,0,.35);z-index:10}
+  .modal.show{display:grid}
+  .panel{background:#fff;border-radius:12px;box-shadow:0 10px 40px rgba(0,0,0,.35);padding:16px 16px 12px;max-width:520px;width:min(92vw,520px)}
+  .panel h2{margin:.2rem 0 .6rem;font-size:22px}
+  .field{display:flex;gap:8px;margin:8px 0}
+  .field input{flex:1;padding:10px 12px;border:2px solid #cfd7ea;border-radius:10px;font-size:16px}
+  .rowBetween{display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap}
+  .mt8{margin-top:8px}
+  .list{max-height:320px;overflow:auto;border:2px solid #eef3ff;border-radius:10px}
+  .rowItem{display:flex;justify-content:space-between;padding:10px 12px;border-bottom:1px solid #eef3ff}
+  .rowItem:last-child{border-bottom:0}
+  .small{opacity:.75;font-size:13px}
+</style>
 </head>
 <body>
-  <div id="ui">
-    <div class="pill" id="score">Score: 0</div>
-    <div class="pill btn" id="restart">Restart</div>
+<div class="wrap">
+  <div class="stage">
+    <div class="hud">
+      <div class="pill">Score: <span id="score">0</span></div>
+      <div class="pill">Best: <span id="best">0</span></div>
+      <button id="restart" class="pill btn">Restart</button>
+      <button id="openBoard" class="pill btn">Leaderboard</button>
+    </div>
+    <canvas id="game" width="900" height="520"></canvas>
   </div>
-  <canvas id="game" width="800" height="400"></canvas>
+</div>
 
-  <!-- Our main game script -->
-  <script type="module">
-    import { drawFox } from './fox.js';
-    import { drawLog } from './obstacle.js';
+<!-- Submit Score Modal -->
+<div id="scoreModal" class="modal" aria-hidden="true">
+  <div class="panel" role="dialog" aria-modal="true">
+    <h2>Submit your score?</h2>
+    <p class="small">Your run: <b id="modalScore">0</b></p>
+    <div class="field"><input id="nameInput" type="text" placeholder="Your name (e.g., Alex)" maxlength="40" /></div>
+    <div class="field"><input id="placeInput" type="text" placeholder="Where you live (City, Country)" maxlength="60" /></div>
+    <div class="rowBetween mt8">
+      <button id="skipSubmit" class="pill btn">No Thanks</button>
+      <button id="submitBtn" class="pill btn">Submit Score</button>
+    </div>
+    <p id="submitMsg" class="small mt8"></p>
+  </div>
+</div>
 
-    const canvas = document.getElementById("game");
-    const ctx = canvas.getContext("2d");
+<!-- Leaderboard Modal -->
+<div id="boardModal" class="modal" aria-hidden="true">
+  <div class="panel" role="dialog" aria-modal="true">
+    <h2>Around-the-World Leaderboard</h2>
+    <div id="boardList" class="list mt8"></div>
+    <div class="rowBetween mt8">
+      <button id="refreshBoard" class="pill btn">Refresh</button>
+      <button id="closeBoard" class="pill btn">Close</button>
+    </div>
+    <p class="small mt8">Top 20 global scores (via Supabase). We also keep a local backup for offline play.</p>
+  </div>
+</div>
 
-    const W = canvas.width, H = canvas.height;
-    const GY = H-60; // ground Y
+<script type="module">
+  import { drawFox } from './fox.js';
+  import { drawLog } from './obstacle.js';
 
-    let player = { x:50, y:GY-60, w:60, h:60, vy:0, onGround:true };
-    let gravity = 0.8, jumpPower = -12;
-    let obs = [];
-    let frame = 0;
-    let score = 0, running = true;
+  const cvs = document.getElementById('game');
+  const ctx = cvs.getContext('2d');
+  const scoreEl = document.getElementById('score');
+  const bestEl  = document.getElementById('best');
+  const restartBtn = document.getElementById('restart');
 
-    function jump(){
-      if(player.onGround){
-        player.vy = jumpPower;
-        player.onGround = false;
-      }
-    }
+  // ===== Supabase (use your real values or leave blank for local-only) =====
+  const SUPABASE_URL = "https://neiajkinanethteyoagr.supabase.co";
+  const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5laWFqa2luYW5ldGh0ZXlvYWdyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTkwMjU0MzcsImV4cCI6MjA3NDYwMTQzN30.aEzoTrCyYOMCnqJ8hLKsaqPeUEoxPecAjKPQMleKH0A";
+  const usingCloud = !!(SUPABASE_URL && SUPABASE_ANON_KEY && SUPABASE_URL.startsWith('https://'));
 
-    document.addEventListener("keydown", e=>{
-      if(e.code==="Space") jump();
+  async function postScore(name, place, score){
+    if(!usingCloud) return null;
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/scores`, {
+      method:'POST',
+      headers:{
+        'Content-Type':'application/json',
+        'apikey':SUPABASE_ANON_KEY,
+        'Authorization':`Bearer ${SUPABASE_ANON_KEY}`,
+        'Prefer':'return=representation'
+      },
+      body:JSON.stringify([{name,place,score}])
     });
-    document.getElementById("restart").onclick = ()=>reset();
+    if(!res.ok) throw new Error(await res.text());
+    return (await res.json())?.[0] || null;
+  }
+  async function fetchTop(){
+    if(!usingCloud) return [];
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/scores?select=name,place,score,created_at&order=score.desc&limit=20`,{
+      headers:{'apikey':SUPABASE_ANON_KEY,'Authorization':`Bearer ${SUPABASE_ANON_KEY}`}
+    });
+    if(!res.ok) throw new Error(await res.text());
+    return await res.json();
+  }
 
-    function reset(){
-      player = { x:50, y:GY-60, w:60, h:60, vy:0, onGround:true };
-      obs = [];
-      score = 0; frame = 0;
-      running = true;
-      document.getElementById("score").innerText = "Score: 0";
+  // Modals
+  const scoreModal = document.getElementById('scoreModal');
+  const modalScore = document.getElementById('modalScore');
+  const nameInput  = document.getElementById('nameInput');
+  const placeInput = document.getElementById('placeInput');
+  const submitBtn  = document.getElementById('submitBtn');
+  const skipSubmit = document.getElementById('skipSubmit');
+  const submitMsg  = document.getElementById('submitMsg');
+
+  const boardModal = document.getElementById('boardModal');
+  const openBoard  = document.getElementById('openBoard');
+  const closeBoard = document.getElementById('closeBoard');
+  const refreshBoard = document.getElementById('refreshBoard');
+  const boardList  = document.getElementById('boardList');
+
+  // ---------- responsive canvas ----------
+  let W=900, H=520, GY=H-80, DPR=1;
+  function resize(){
+    const dpr = Math.max(1, Math.min(window.devicePixelRatio||1, 3));
+    DPR=dpr;
+    const cssW = Math.min(document.querySelector('.stage').clientWidth-40, 900);
+    const cssH = Math.min(Math.max(window.innerHeight*0.70, 360), 520);
+    cvs.style.width = cssW+'px';
+    cvs.style.height= cssH+'px';
+    cvs.width  = Math.floor(cssW*dpr);
+    cvs.height = Math.floor(cssH*dpr);
+    ctx.setTransform(dpr,0,0,dpr,0,0);
+    W=cssW; H=cssH;
+    GY = Math.floor(H*0.80); // ground at ~80%
+    player.y = GY - player.h;
+  }
+  window.addEventListener('resize', resize);
+
+  // ---------- player / physics ----------
+  const player = { x:120, y:0, w:56, h:56, vy:0, onGround:true, jumpHeld:false, jumpTime:0 };
+  const GRAV=1800, JUMP_VY=-650, HOLD_ACC=-1400, HOLD_TIME=0.18;
+
+  // ---------- pacing ----------
+  const START_SPEED = 220, MAX_SPEED = 520, ACCEL_PPS2 = 30;
+  let tSinceStart = 0;
+
+  // ---------- obstacles ----------
+  const obs = [];
+  function spawn(){
+    const width  = 44 + Math.random()*44;   // 44–88
+    const height = 34 + Math.random()*42;   // 34–76
+    const baseMin = 360, baseMax = 500;
+    const extraMin = Math.max(0, (speed - START_SPEED) * 0.25);
+    const extraMax = Math.max(0, (speed - START_SPEED) * 0.35);
+    const gapMin = baseMin + extraMin, gapMax = baseMax + extraMax;
+    const lastX = obs.length ? obs[obs.length-1].x : (W + 220);
+    const x = lastX + gapMin + Math.random()*(gapMax-gapMin);
+    obs.push({ x, y: GY - height, w: width, h: height });
+  }
+
+  // ---------- input ----------
+  let jumpPressed=false;
+  function press(){ if(!player.jumpHeld){ jumpPressed=true; } player.jumpHeld=true; }
+  function release(){ player.jumpHeld=false; }
+  window.addEventListener('keydown', e => { if(e.code==='Space' || e.code==='ArrowUp'){ e.preventDefault(); press(); }});
+  window.addEventListener('keyup',   e => { if(e.code==='Space' || e.code==='ArrowUp'){ e.preventDefault(); release(); }});
+  cvs.addEventListener('pointerdown', e => { e.preventDefault(); press(); });
+  cvs.addEventListener('pointerup',   e => { e.preventDefault(); release(); });
+
+  // ---------- game state ----------
+  let running=false, last=0, speed=START_SPEED, score=0, best=+(localStorage.simple_best||0);
+  let dist=0, rafId=0;
+  bestEl.textContent = best;
+
+  function start(){
+    cancelAnimationFrame(rafId);
+    resize();
+    running=true; last=performance.now();
+    speed=START_SPEED; score=0; dist=0; tSinceStart=0;
+    Object.assign(player,{ x:120, y:GY-player.h, vy:0, onGround:true, jumpHeld:false, jumpTime:0 });
+    obs.length=0; for(let i=0;i<6;i++) spawn();
+    rafId = requestAnimationFrame(loop);
+    scoreEl.textContent = 0;
+  }
+  restartBtn.addEventListener('click', start);
+
+  function loop(t){
+    if(!running) return;
+    const dt=Math.min(0.033,(t-last)/1000); last=t;
+    update(dt); draw();
+    rafId = requestAnimationFrame(loop);
+  }
+
+  function end(){
+    running=false;
+    if(score>best){ best=score; localStorage.simple_best=best; bestEl.textContent=best; }
+    modalScore.textContent = score;
+    submitMsg.textContent = '';
+    nameInput.value = localStorage.player_name || '';
+    placeInput.value = localStorage.player_place || '';
+    scoreModal.classList.add('show');
+    scoreModal.setAttribute('aria-hidden','false');
+  }
+
+  // local fallback board
+  function getBoard(){ try{ return JSON.parse(localStorage.simple_board||'[]'); }catch(_){ return []; } }
+  function setBoard(rows){ localStorage.simple_board = JSON.stringify(rows); }
+  function escapeHtml(s){ return (s||'').replace(/[&<>"']/g,m=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[m])); }
+
+  async function showLeaderboard(){
+    try{
+      let rows = usingCloud ? await fetchTop() : null;
+      if(!rows || !rows.length){ rows = getBoard().sort((a,b)=>b.score-a.score).slice(0,20); }
+      boardList.innerHTML = rows.length
+        ? rows.map((r,i)=>`<div class="rowItem"><span>#${i+1} — ${escapeHtml(r.name)} <span class="small">(${escapeHtml(r.place)})</span></span><span>${(r.score|0)}</span></div>`).join('')
+        : '<div class="rowItem"><span>No scores yet.</span><span>—</span></div>';
+    }catch(e){
+      const rows = getBoard().sort((a,b)=>b.score-a.score).slice(0,20);
+      boardList.innerHTML = rows.length
+        ? rows.map((r,i)=>`<div class="rowItem"><span>#${i+1} — ${escapeHtml(r.name)} <span class="small">(${escapeHtml(r.place)})</span></span><span>${(r.score|0)}</span></div>`).join('')
+        : '<div class="rowItem"><span>No scores yet.</span><span>—</span></div>';
+    }
+  }
+
+  submitBtn.addEventListener('click', async () => {
+    const name = (nameInput.value||'').trim();
+    const place= (placeInput.value||'').trim();
+    if(name.length<1 || place.length<2){
+      submitMsg.textContent='Please add your name and where you live (e.g., City, Country).';
+      return;
+    }
+    localStorage.player_name = name;
+    localStorage.player_place = place;
+
+    try{
+      if(usingCloud){ await postScore(name, place, score); submitMsg.textContent='Saved to global leaderboard! 🎉'; }
+    }catch(err){
+      submitMsg.textContent='Online save failed; saved locally only.'; console.warn(err);
+    }
+    const rows = getBoard(); rows.push({name, place, score, date:new Date().toISOString()}); setBoard(rows);
+
+    scoreModal.classList.remove('show'); scoreModal.setAttribute('aria-hidden','true');
+    await showLeaderboard();
+    boardModal.classList.add('show'); boardModal.setAttribute('aria-hidden','false');
+    setTimeout(start, 300);
+  });
+  skipSubmit.addEventListener('click', () => {
+    scoreModal.classList.remove('show'); scoreModal.setAttribute('aria-hidden','true');
+    setTimeout(start, 300);
+  });
+
+  document.getElementById('openBoard').addEventListener('click', () => { boardModal.classList.add('show'); boardModal.setAttribute('aria-hidden','false'); showLeaderboard(); });
+  document.getElementById('closeBoard').addEventListener('click', () => { boardModal.classList.remove('show'); boardModal.setAttribute('aria-hidden','true'); });
+  document.getElementById('refreshBoard').addEventListener('click', showLeaderboard);
+
+  // ---------- update/draw ----------
+  function update(dt){
+    tSinceStart += dt;
+    const ease = Math.min(1, tSinceStart / 1.0);
+    speed += (ACCEL_PPS2 * ease) * dt;
+    if (speed > MAX_SPEED) speed = MAX_SPEED;
+
+    dist  += speed * dt;
+    score = Math.max(0, Math.floor(dist / 60));
+    scoreEl.textContent = score;
+
+    for(const o of obs){ o.x -= speed*dt; }
+    if(obs.length && obs[0].x + obs[0].w < -10) obs.shift();
+    if(!obs.length || obs[obs.length-1].x < W + 160) spawn();
+
+    if(jumpPressed && player.onGround){
+      player.vy = JUMP_VY; player.onGround=false; player.jumpTime=0;
+    }
+    jumpPressed=false;
+
+    if(player.jumpHeld && player.vy<0){
+      player.jumpTime += dt;
+      const k = Math.max(0, 1 - player.jumpTime/HOLD_TIME);
+      player.vy += HOLD_ACC * dt * k;
     }
 
-    function update(){
-      if(!running) return;
+    player.vy += GRAV*dt;
+    player.y  += player.vy*dt;
 
-      frame++;
-      player.vy += gravity;
-      player.y += player.vy;
-      if(player.y+player.h >= GY){
-        player.y = GY-player.h;
-        player.vy = 0;
-        player.onGround = true;
-      }
-
-      // obstacles
-      if(frame%90===0){
-        obs.push({x:W, y:GY-40, w:40, h:40});
-      }
-      for(let o of obs){ o.x -= 6; }
-      obs = obs.filter(o=>o.x+o.w>0);
-
-      // collisions
-      for(let o of obs){
-        if(player.x < o.x+o.w && player.x+player.w > o.x &&
-           player.y < o.y+o.h && player.y+player.h > o.y){
-          running=false;
-        }
-      }
-
-      // score
-      if(frame%30===0 && running){
-        score++;
-        document.getElementById("score").innerText = "Score: "+score;
-      }
+    if(player.y + player.h >= GY){
+      player.y = GY - player.h;
+      if(!player.onGround){ player.onGround=true; player.vy=0; }
     }
 
-    function draw(){
-      ctx.fillStyle = '#bfe6ff';
-      ctx.fillRect(0,0,W,H);
-      ctx.fillStyle = '#3aa655';
-      ctx.fillRect(0,GY,W,H-GY);
-
-      // fox
-      drawFox(ctx, player.x, player.y, player.w, player.h, player.vy, player.onGround, GY);
-
-      // logs
-      for(const o of obs){
-        drawLog(ctx, o.x, o.y, o.w, o.h);
+    // collisions
+    for(const o of obs){
+      if(player.x < o.x+o.w && player.x+player.w > o.x && player.y < o.y+o.h && player.y+player.h > o.y){
+        end(); return;
       }
     }
+  }
 
-    function loop(){
-      update();
-      draw();
-      requestAnimationFrame(loop);
-    }
+  function draw(){
+    // sky & ground inside canvas
+    ctx.fillStyle = '#bfe6ff'; ctx.fillRect(0,0,W,H);
+    ctx.fillStyle = '#3aa655'; ctx.fillRect(0,GY,W,H-GY);
 
-    loop();
-  </script>
+    // fox & logs
+    drawFox(ctx, player.x, player.y, player.w, player.h, player.vy, player.onGround, GY);
+    for(const o of obs){ drawLog(ctx, o.x, o.y, o.w, o.h); }
+  }
+
+  // boot
+  start();
+</script>
 </body>
 </html>
