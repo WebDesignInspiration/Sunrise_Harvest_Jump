@@ -12,7 +12,7 @@
     padding:18px 20px 24px;
     border-radius:16px;
     box-shadow:0 18px 50px rgba(0,0,0,.45);
-    background:linear-gradient(#cfe7ff,#9ec6f0);
+    background:linear-gradient(#0b1222,#0b1222); /* frame */
   }
   canvas{
     display:block;
@@ -27,6 +27,7 @@
   .hud{display:flex;gap:10px;justify-content:center;margin-bottom:12px;flex-wrap:wrap}
   .pill{background:#ffffffcc;border:2px solid #00000014;border-radius:999px;padding:6px 12px;font-weight:700}
   .btn{cursor:pointer}
+
   /* Modals */
   .modal{position:fixed;inset:0;display:none;place-items:center;background:rgba(0,0,0,.35);z-index:10}
   .modal.show{display:grid}
@@ -85,7 +86,8 @@
 
 <script type="module">
   import { drawFox } from './fox.js';
-  import { drawLog } from './obstacle.js';
+  import { drawObstacle } from './obstacle.js';   // new multi-variant obstacles
+  import { drawBackground } from './background.js'; // parallax forest
 
   const cvs = document.getElementById('game');
   const ctx = cvs.getContext('2d');
@@ -93,7 +95,7 @@
   const bestEl  = document.getElementById('best');
   const restartBtn = document.getElementById('restart');
 
-  // ===== Supabase (use your real values or leave blank for local-only) =====
+  // ===== Supabase (fill with your own or leave as-is for local-only) =====
   const SUPABASE_URL = "https://neiajkinanethteyoagr.supabase.co";
   const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5laWFqa2luYW5ldGh0ZXlvYWdyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTkwMjU0MzcsImV4cCI6MjA3NDYwMTQzN30.aEzoTrCyYOMCnqJ8hLKsaqPeUEoxPecAjKPQMleKH0A";
   const usingCloud = !!(SUPABASE_URL && SUPABASE_ANON_KEY && SUPABASE_URL.startsWith('https://'));
@@ -163,18 +165,27 @@
   const START_SPEED = 220, MAX_SPEED = 520, ACCEL_PPS2 = 30;
   let tSinceStart = 0;
 
+  // ---------- background scroll ----------
+  let bgOff = 0;
+
   // ---------- obstacles ----------
   const obs = [];
   function spawn(){
     const width  = 44 + Math.random()*44;   // 44–88
     const height = 34 + Math.random()*42;   // 34–76
+
     const baseMin = 360, baseMax = 500;
     const extraMin = Math.max(0, (speed - START_SPEED) * 0.25);
     const extraMax = Math.max(0, (speed - START_SPEED) * 0.35);
     const gapMin = baseMin + extraMin, gapMax = baseMax + extraMax;
+
     const lastX = obs.length ? obs[obs.length-1].x : (W + 220);
     const x = lastX + gapMin + Math.random()*(gapMax-gapMin);
-    obs.push({ x, y: GY - height, w: width, h: height });
+
+    const types = ['log','stump','rock','bush']; // keep or trim
+    const type = types[Math.floor(Math.random()*types.length)];
+
+    obs.push({ x, y: GY - height, w: width, h: height, type });
   }
 
   // ---------- input ----------
@@ -195,7 +206,7 @@
     cancelAnimationFrame(rafId);
     resize();
     running=true; last=performance.now();
-    speed=START_SPEED; score=0; dist=0; tSinceStart=0;
+    speed=START_SPEED; score=0; dist=0; tSinceStart=0; bgOff=0;
     Object.assign(player,{ x:120, y:GY-player.h, vy:0, onGround:true, jumpHeld:false, jumpTime:0 });
     obs.length=0; for(let i=0;i<6;i++) spawn();
     rafId = requestAnimationFrame(loop);
@@ -283,10 +294,15 @@
     score = Math.max(0, Math.floor(dist / 60));
     scoreEl.textContent = score;
 
+    // parallax scroll
+    bgOff += speed * dt;
+
+    // obstacles
     for(const o of obs){ o.x -= speed*dt; }
     if(obs.length && obs[0].x + obs[0].w < -10) obs.shift();
     if(!obs.length || obs[obs.length-1].x < W + 160) spawn();
 
+    // jumping
     if(jumpPressed && player.onGround){
       player.vy = JUMP_VY; player.onGround=false; player.jumpTime=0;
     }
@@ -298,9 +314,11 @@
       player.vy += HOLD_ACC * dt * k;
     }
 
+    // gravity
     player.vy += GRAV*dt;
     player.y  += player.vy*dt;
 
+    // ground collide
     if(player.y + player.h >= GY){
       player.y = GY - player.h;
       if(!player.onGround){ player.onGround=true; player.vy=0; }
@@ -315,13 +333,12 @@
   }
 
   function draw(){
-    // sky & ground inside canvas
-    ctx.fillStyle = '#bfe6ff'; ctx.fillRect(0,0,W,H);
-    ctx.fillStyle = '#3aa655'; ctx.fillRect(0,GY,W,H-GY);
+    // forest background
+    drawBackground(ctx, W, H, GY, bgOff);
 
-    // fox & logs
+    // fox & obstacles
     drawFox(ctx, player.x, player.y, player.w, player.h, player.vy, player.onGround, GY);
-    for(const o of obs){ drawLog(ctx, o.x, o.y, o.w, o.h); }
+    for(const o of obs){ drawObstacle(ctx, o); }
   }
 
   // boot
