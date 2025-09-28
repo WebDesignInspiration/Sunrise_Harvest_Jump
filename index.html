@@ -15,18 +15,66 @@
     background:#bfe6ff; /* sky */
     touch-action:none;
   }
-  .hud{position:absolute;top:10px;left:50%;transform:translateX(-50%);display:flex;gap:10px}
+  .hud{position:absolute;top:10px;left:50%;transform:translateX(-50%);display:flex;gap:10px;flex-wrap:wrap}
   .pill{background:#ffffffcc;border:2px solid #00000014;border-radius:999px;padding:6px 12px;font-weight:700}
   .btn{cursor:pointer}
+
+  /* Modals */
+  .modal{position:fixed;inset:0;display:none;place-items:center;background:rgba(0,0,0,.35);z-index:10}
+  .modal.show{display:grid}
+  .panel{background:#fff;border-radius:12px;box-shadow:0 10px 40px rgba(0,0,0,.35);padding:16px 16px 12px;max-width:520px;width:min(92vw,520px)}
+  .panel h2{margin:.2rem 0 .6rem;font-size:22px}
+  .field{display:flex;gap:8px;margin:8px 0}
+  .field input{flex:1;padding:10px 12px;border:2px solid #cfd7ea;border-radius:10px;font-size:16px}
+  .rowBetween{display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap}
+  .mt8{margin-top:8px}
+  .list{max-height:320px;overflow:auto;border:2px solid #eef3ff;border-radius:10px}
+  .rowItem{display:flex;justify-content:space-between;padding:10px 12px;border-bottom:1px solid #eef3ff}
+  .rowItem:last-child{border-bottom:0}
+  .small{opacity:.75;font-size:13px}
 </style>
 </head>
 <body>
 <div class="wrap">
   <canvas id="game" width="900" height="520"></canvas>
+
   <div class="hud">
     <div class="pill">Score: <span id="score">0</span></div>
     <div class="pill">Best: <span id="best">0</span></div>
     <button id="restart" class="pill btn">Restart</button>
+    <button id="openBoard" class="pill btn">Leaderboard</button>
+  </div>
+</div>
+
+<!-- Submit Score Modal -->
+<div id="scoreModal" class="modal" aria-hidden="true">
+  <div class="panel" role="dialog" aria-modal="true">
+    <h2>Submit your score?</h2>
+    <p class="small">Your run: <b id="modalScore">0</b></p>
+    <div class="field">
+      <input id="nameInput" type="text" placeholder="Your name (e.g., Alex)" maxlength="40" />
+    </div>
+    <div class="field">
+      <input id="placeInput" type="text" placeholder="Where you live (City, Country)" maxlength="60" />
+    </div>
+    <div class="rowBetween mt8">
+      <button id="skipSubmit" class="pill btn">No Thanks</button>
+      <button id="submitBtn" class="pill btn">Submit Score</button>
+    </div>
+    <p id="submitMsg" class="small mt8"></p>
+  </div>
+</div>
+
+<!-- Leaderboard Modal -->
+<div id="boardModal" class="modal" aria-hidden="true">
+  <div class="panel" role="dialog" aria-modal="true">
+    <h2>Around-the-World Leaderboard</h2>
+    <div id="boardList" class="list mt8"></div>
+    <div class="rowBetween mt8">
+      <button id="refreshBoard" class="pill btn">Refresh</button>
+      <button id="closeBoard" class="pill btn">Close</button>
+    </div>
+    <p class="small mt8">Top 20 global scores (via Supabase). We also keep a local backup for offline play.</p>
   </div>
 </div>
 
@@ -37,6 +85,61 @@
   const scoreEl = document.getElementById('score');
   const bestEl  = document.getElementById('best');
   const restartBtn = document.getElementById('restart');
+
+  // ===== Supabase config (PASTE YOUR VALUES) =====
+  const SUPABASE_URL = "https://neiajkinanethteyoagr.supabase.co";   // URL
+  const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5laWFqa2luYW5ldGh0ZXlvYWdyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTkwMjU0MzcsImV4cCI6MjA3NDYwMTQzN30.aEzoTrCyYOMCnqJ8hLKsaqPeUEoxPecAjKPQMleKH0A";                 // API
+  const usingCloud = !!(SUPABASE_URL && SUPABASE_ANON_KEY && SUPABASE_URL.startsWith('https://'));
+
+  // Cloud helpers (using Supabase REST)
+  async function postScore(name, place, score){
+    if(!usingCloud) return null;
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/scores`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'apikey': SUPABASE_ANON_KEY,
+        'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+        'Prefer': 'return=representation'
+      },
+      body: JSON.stringify([{ name, place, score }])
+    });
+    if(!res.ok){
+      const txt = await res.text().catch(()=>res.statusText);
+      throw new Error(`Supabase insert failed: ${txt}`);
+    }
+    return (await res.json())?.[0] || null;
+  }
+  async function fetchTop(){
+    if(!usingCloud) return [];
+    const res = await fetch(
+      `${SUPABASE_URL}/rest/v1/scores?select=name,place,score,created_at&order=score.desc&limit=20`, {
+      headers: {
+        'apikey': SUPABASE_ANON_KEY,
+        'Authorization': `Bearer ${SUPABASE_ANON_KEY}`
+      }
+    });
+    if(!res.ok){
+      const txt = await res.text().catch(()=>res.statusText);
+      throw new Error(`Supabase fetch failed: ${txt}`);
+    }
+    return await res.json();
+  }
+
+  // Modals + fields
+  const scoreModal = document.getElementById('scoreModal');
+  const modalScore = document.getElementById('modalScore');
+  const nameInput  = document.getElementById('nameInput');
+  const placeInput = document.getElementById('placeInput');
+  const submitBtn  = document.getElementById('submitBtn');
+  const skipSubmit = document.getElementById('skipSubmit');
+  const submitMsg  = document.getElementById('submitMsg');
+
+  const boardModal = document.getElementById('boardModal');
+  const openBoard  = document.getElementById('openBoard');
+  const closeBoard = document.getElementById('closeBoard');
+  const refreshBoard = document.getElementById('refreshBoard');
+  const boardList  = document.getElementById('boardList');
 
   // ---------- sizing ----------
   let W=900, H=520, GY=H-80, DPR=1;
@@ -56,10 +159,11 @@
   }
   window.addEventListener('resize', resize);
 
-  // ---------- constants for pacing ----------
+  // ---------- pacing ----------
   const START_SPEED = 220; // px/s
   const MAX_SPEED   = 520; // cap
-  const ACCEL_PPS2  = 30;  // px/s^2 (gentle)
+  const ACCEL_PPS2  = 30;  // px/s^2
+  let tSinceStart = 0;
 
   // ---------- player / physics ----------
   const player = { x:120, y:0, w:40, h:40, vy:0, onGround:true, jumpHeld:false, jumpTime:0 };
@@ -71,7 +175,6 @@
     const width  = 40 + Math.random()*40;   // 40–80
     const height = 30 + Math.random()*40;   // 30–70
 
-    // base gaps + mild speed scaling so it stays fair later
     const baseMin = 360, baseMax = 500;
     const extraMin = Math.max(0, (speed - START_SPEED) * 0.25);
     const extraMax = Math.max(0, (speed - START_SPEED) * 0.35);
@@ -94,7 +197,7 @@
 
   // ---------- game state ----------
   let running=false, last=0, speed=START_SPEED, score=0, best=+(localStorage.simple_best||0);
-  let dist=0, tSinceStart=0;
+  let dist=0;
   bestEl.textContent = best;
 
   function start(){
@@ -118,28 +221,86 @@
   function end(){
     running=false;
     if(score>best){ best=score; localStorage.simple_best=best; bestEl.textContent=best; }
-    setTimeout(start, 600);
+    modalScore.textContent = score;
+    submitMsg.textContent = '';
+    nameInput.value = localStorage.player_name || '';
+    placeInput.value = localStorage.player_place || '';
+    scoreModal.classList.add('show');
+    scoreModal.setAttribute('aria-hidden','false');
   }
-   <!-- redeploy -->
+
+  // ---------- local fallback leaderboard ----------
+  function getBoard(){ try{ return JSON.parse(localStorage.simple_board||'[]'); }catch(_){ return []; } }
+  function setBoard(rows){ localStorage.simple_board = JSON.stringify(rows); }
+  function escapeHtml(s){ return (s||'').replace(/[&<>"']/g,m=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[m])); }
+
+  async function showLeaderboard(){
+    try{
+      let rows = usingCloud ? await fetchTop() : null;
+      if(!rows || !rows.length){
+        rows = getBoard().sort((a,b)=>b.score-a.score).slice(0,20);
+      }
+      boardList.innerHTML = rows.length
+        ? rows.map((r,i)=>`<div class="rowItem"><span>#${i+1} — ${escapeHtml(r.name)} <span class="small">(${escapeHtml(r.place)})</span></span><span>${(r.score|0)}</span></div>`).join('')
+        : '<div class="rowItem"><span>No scores yet.</span><span>—</span></div>';
+    }catch(e){
+      const rows = getBoard().sort((a,b)=>b.score-a.score).slice(0,20);
+      boardList.innerHTML = rows.length
+        ? rows.map((r,i)=>`<div class="rowItem"><span>#${i+1} — ${escapeHtml(r.name)} <span class="small">(${escapeHtml(r.place)})</span></span><span>${(r.score|0)}</span></div>`).join('')
+        : '<div class="rowItem"><span>No scores yet.</span><span>—</span></div>';
+    }
+  }
+
+  // Submit score — cloud first, local fallback
+  submitBtn.addEventListener('click', async () => {
+    const name = (nameInput.value||'').trim();
+    const place= (placeInput.value||'').trim();
+    if(name.length<1 || place.length<2){
+      submitMsg.textContent='Please add your name and where you live (e.g., City, Country).';
+      return;
+    }
+    localStorage.player_name = name;
+    localStorage.player_place = place;
+
+    try{
+      if(usingCloud){ await postScore(name, place, score); submitMsg.textContent='Saved to global leaderboard! 🎉'; }
+    }catch(err){
+      submitMsg.textContent='Online save failed; saved locally only.'; console.warn(err);
+    }
+
+    // Always keep local copy
+    const rows = getBoard(); rows.push({name, place, score, date:new Date().toISOString()}); setBoard(rows);
+
+    scoreModal.classList.remove('show'); scoreModal.setAttribute('aria-hidden','true');
+    await showLeaderboard();
+    boardModal.classList.add('show'); boardModal.setAttribute('aria-hidden','false');
+    setTimeout(start, 300);
+  });
+
+  skipSubmit.addEventListener('click', () => {
+    scoreModal.classList.remove('show'); scoreModal.setAttribute('aria-hidden','true');
+    setTimeout(start, 300);
+  });
+
+  openBoard.addEventListener('click', () => { boardModal.classList.add('show'); boardModal.setAttribute('aria-hidden','false'); showLeaderboard(); });
+  closeBoard.addEventListener('click', () => { boardModal.classList.remove('show'); boardModal.setAttribute('aria-hidden','true'); });
+  refreshBoard.addEventListener('click', showLeaderboard);
+
+  // ---------- update/draw ----------
   function update(dt){
-    // speed (time-based acceleration + 1s ease-in + cap)
     tSinceStart += dt;
-    const ease = Math.min(1, tSinceStart / 1.0); // 1 second ease-in
+    const ease = Math.min(1, tSinceStart / 1.0);
     speed += (ACCEL_PPS2 * ease) * dt;
     if (speed > MAX_SPEED) speed = MAX_SPEED;
 
-    // score by distance (stable on any FPS)
     dist  += speed * dt;
-    score = Math.max(0, Math.floor(dist / 60));  // ~1pt per 60px
+    score = Math.max(0, Math.floor(dist / 60));
     scoreEl.textContent = score;
 
-    // obstacles move & recycle
     for(const o of obs){ o.x -= speed*dt; }
     if(obs.length && obs[0].x + obs[0].w < -10) obs.shift();
-    // keep generating with fair spacing
     if(!obs.length || obs[obs.length-1].x < W + 160) spawn();
 
-    // jumping
     if(jumpPressed && player.onGround){
       player.vy = JUMP_VY; player.onGround=false; player.jumpTime=0;
     }
@@ -151,17 +312,14 @@
       player.vy += HOLD_ACC * dt * k;
     }
 
-    // gravity
     player.vy += GRAV*dt;
     player.y  += player.vy*dt;
 
-    // ground collide
     if(player.y + player.h >= GY){
       player.y = GY - player.h;
       if(!player.onGround){ player.onGround=true; player.vy=0; }
     }
 
-    // obstacle collisions
     for(const o of obs){
       if(player.x < o.x+o.w && player.x+player.w > o.x && player.y < o.y+o.h && player.y+player.h > o.y){
         end(); return;
@@ -170,20 +328,11 @@
   }
 
   function draw(){
-    // sky
-    ctx.fillStyle = '#bfe6ff';
-    ctx.fillRect(0,0,W,H);
-    // ground
-    ctx.fillStyle = '#3aa655';
-    ctx.fillRect(0,GY,W,H-GY);
-    // player
-    ctx.fillStyle = '#ff7a33';
-    ctx.fillRect(player.x, player.y, player.w, player.h);
-    ctx.fillStyle = '#222';
-    ctx.fillRect(player.x+player.w-10, player.y+10, 6, 6);
-    // obstacles
-    ctx.fillStyle = '#654321';
-    for(const o of obs){ ctx.fillRect(o.x, o.y, o.w, o.h); }
+    ctx.fillStyle = '#bfe6ff'; ctx.fillRect(0,0,W,H);
+    ctx.fillStyle = '#3aa655'; ctx.fillRect(0,GY,W,H-GY);
+    ctx.fillStyle = '#ff7a33'; ctx.fillRect(player.x, player.y, player.w, player.h);
+    ctx.fillStyle = '#222';    ctx.fillRect(player.x+player.w-10, player.y+10, 6, 6);
+    ctx.fillStyle = '#654321'; for(const o of obs){ ctx.fillRect(o.x, o.y, o.w, o.h); }
   }
 
   // boot
@@ -192,4 +341,3 @@
 </script>
 </body>
 </html>
-
