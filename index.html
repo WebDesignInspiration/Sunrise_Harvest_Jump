@@ -286,6 +286,166 @@
   closeBoard.addEventListener('click', () => { boardModal.classList.remove('show'); boardModal.setAttribute('aria-hidden','true'); });
   refreshBoard.addEventListener('click', showLeaderboard);
 
+  // ---------- FOX DRAWING HELPER ----------
+  // Improved sticker-style fox with tilt, tail tip, inner ear, paw caps, tiny mouth
+function drawFox(ctx, x, y, w, h, vy, onGround, groundY){
+  const t = performance.now() / 1000;
+
+  // running cycle (0..1) and subtle air tilt/squash
+  const run = onGround ? (Math.sin(t*12)*0.5 + 0.5) : 0.5;
+  const tilt = Math.max(-0.18, Math.min(0.18, -vy/1800)); // tilt nose up when rising
+  const stretch = onGround ? 1 - Math.min(0.06, Math.abs(vy)*0.00005) : 1 + Math.min(0.07, Math.abs(vy)*0.00006);
+  const squishX = 1 / stretch;
+
+  // local transform so rotate/squash affects all parts
+  ctx.save();
+  ctx.translate(x + w*0.5, y + h*0.55);
+  ctx.rotate(tilt);
+  ctx.scale(squishX, stretch);
+  ctx.translate(-w*0.5, -h*0.55);
+
+  // shadow (outside the transform so it doesn't tilt)
+  ctx.save();
+  ctx.globalAlpha = 0.22;
+  ctx.fillStyle = '#2a6b46';
+  ctx.beginPath();
+  const shW = w * (onGround ? 0.95 : 0.75);
+  const shH = h * 0.28;
+  ctx.ellipse(x + w*0.5, groundY + 7, shW, shH, 0, 0, Math.PI*2);
+  ctx.fill();
+  ctx.restore();
+
+  // helper to draw sticker shapes
+  function sticker(path, fill, ink='#172133', edge='#fff'){
+    ctx.save();
+    ctx.lineJoin = ctx.lineCap = 'round';
+    // white edge
+    ctx.lineWidth = Math.max(2, w*0.095);
+    ctx.strokeStyle = edge;
+    ctx.beginPath(); path(); ctx.stroke();
+    // ink line
+    ctx.lineWidth = Math.max(1.6, w*0.032);
+    ctx.strokeStyle = ink;
+    ctx.beginPath(); path(); ctx.stroke();
+    // fill
+    ctx.fillStyle = fill;
+    ctx.beginPath(); path(); ctx.fill();
+    ctx.restore();
+  }
+
+  // --- Tail (with white tip and a little wag when running) ---
+  sticker(() => {
+    const wag = 0.05*Math.sin(t*8);
+    ctx.moveTo(w*0.18, h*0.66);
+    ctx.quadraticCurveTo(w*(0.02+wag), h*(0.52+wag), w*0.10, h*(0.30));
+    ctx.quadraticCurveTo(w*0.36, h*0.32, w*0.44, h*0.58);
+    ctx.closePath();
+  }, '#ff6b2f');
+  // tail tip (white)
+  ctx.save();
+  ctx.fillStyle = '#ffe7d1';
+  ctx.beginPath();
+  ctx.moveTo(w*0.11, h*0.33);
+  ctx.quadraticCurveTo(w*0.20, h*0.38, w*0.19, h*0.52);
+  ctx.quadraticCurveTo(w*0.15, h*0.53, w*0.10, h*0.42);
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
+
+  // --- Body (slightly longer) ---
+  sticker(() => {
+    const r = w*0.12;
+    const bx = w*0.18, by = h*0.28, bw = w*0.55, bh = h*0.46;
+    ctx.moveTo(bx+r, by);
+    ctx.lineTo(bx+bw-r, by); ctx.quadraticCurveTo(bx+bw, by, bx+bw, by+r);
+    ctx.lineTo(bx+bw, by+bh-r); ctx.quadraticCurveTo(bx+bw, by+bh, bx+bw-r, by+bh);
+    ctx.lineTo(bx+r, by+bh); ctx.quadraticCurveTo(bx, by+bh, bx, by+bh-r);
+    ctx.lineTo(bx, by+r); ctx.quadraticCurveTo(bx, by, bx+r, by);
+    ctx.closePath();
+  }, '#ff6b2f');
+
+  // belly patch
+  ctx.save();
+  ctx.fillStyle = '#ffe7d1';
+  ctx.beginPath();
+  ctx.ellipse(w*0.44, h*0.58, w*0.18, h*0.18, 0, 0, Math.PI*2);
+  ctx.fill();
+  ctx.restore();
+
+  // --- Head with inner ear ---
+  sticker(() => {
+    const hx = w*0.60, hy = h*0.16, hw = w*0.36, hh = h*0.36, r = w*0.10;
+    // head
+    ctx.moveTo(hx+r, hy);
+    ctx.lineTo(hx+hw-r, hy); ctx.quadraticCurveTo(hx+hw, hy, hx+hw, hy+r);
+    ctx.lineTo(hx+hw, hy+hh-r); ctx.quadraticCurveTo(hx+hw, hy+hh, hx+hw-r, hy+hh);
+    ctx.lineTo(hx+r, hy+hh); ctx.quadraticCurveTo(hx, hy+hh, hx, hy+hh-r);
+    ctx.lineTo(hx, hy+r); ctx.quadraticCurveTo(hx, hy, hx+r, hy);
+    // big ear
+    ctx.moveTo(hx+hw*0.55, hy);
+    ctx.lineTo(hx+hw*0.82, hy - h*0.12);
+    ctx.lineTo(hx+hw*0.72, hy + h*0.08);
+    ctx.closePath();
+  }, '#ff6b2f');
+
+  // inner ear (light)
+  ctx.save();
+  ctx.fillStyle = '#ffd3b0';
+  ctx.beginPath();
+  const hx = w*0.60, hy = h*0.16, hw = w*0.36;
+  ctx.moveTo(hx+hw*0.60, hy - h*0.01);
+  ctx.lineTo(hx+hw*0.78, hy - h*0.09);
+  ctx.lineTo(hx+hw*0.70, hy + h*0.05);
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
+
+  // muzzle (white) + tiny mouth
+  ctx.save();
+  ctx.fillStyle = '#ffe7d1';
+  ctx.beginPath();
+  ctx.ellipse(w*0.87, h*0.44, w*0.07, h*0.06, 0, 0, Math.PI*2);
+  ctx.fill();
+  // mouth
+  ctx.strokeStyle = '#172133';
+  ctx.lineWidth = Math.max(1.2, w*0.02);
+  ctx.beginPath();
+  ctx.moveTo(w*0.90, h*0.47);
+  ctx.quadraticCurveTo(w*0.92, h*0.50, w*0.94, h*0.48);
+  ctx.stroke();
+  ctx.restore();
+
+  // eye with specular dot + nose
+  ctx.save();
+  ctx.fillStyle = '#172133';
+  ctx.beginPath(); ctx.arc(w*0.73, h*0.38, Math.max(1.6, w*0.03), 0, Math.PI*2); ctx.fill();
+  ctx.fillStyle = '#fff';
+  ctx.beginPath(); ctx.arc(w*0.725, h*0.37, Math.max(0.8, w*0.012), 0, Math.PI*2); ctx.fill(); // eye highlight
+  ctx.fillStyle = '#172133';
+  ctx.beginPath(); ctx.arc(w*0.92, h*0.44, Math.max(1.7, w*0.028), 0, Math.PI*2); ctx.fill();
+  ctx.restore();
+
+  // legs with depth (rear darker), paw caps
+  const legCycleA = h*(0.40 + 0.10*run);
+  const legCycleB = h*(0.40 + 0.10*(1-run));
+  // rear leg
+  ctx.save();
+  ctx.fillStyle = '#0f1829';
+  ctx.fillRect(w*0.28, h*0.60, w*0.12, legCycleA*0.46);
+  ctx.fillStyle = '#ffe7d1';
+  ctx.fillRect(w*0.28, h*0.60 + legCycleA*0.46 - h*0.05, w*0.12, h*0.05);
+  ctx.restore();
+  // front leg
+  ctx.save();
+  ctx.fillStyle = '#172133';
+  ctx.fillRect(w*0.48, h*0.60, w*0.12, legCycleB*0.46);
+  ctx.fillStyle = '#ffe7d1';
+  ctx.fillRect(w*0.48, h*0.60 + legCycleB*0.46 - h*0.05, w*0.12, h*0.05);
+  ctx.restore();
+
+  ctx.restore(); // end local transform
+}
+
   // ---------- update/draw ----------
   function update(dt){
     tSinceStart += dt;
@@ -328,11 +488,16 @@
   }
 
   function draw(){
+    // background
     ctx.fillStyle = '#bfe6ff'; ctx.fillRect(0,0,W,H);
     ctx.fillStyle = '#3aa655'; ctx.fillRect(0,GY,W,H-GY);
-    ctx.fillStyle = '#ff7a33'; ctx.fillRect(player.x, player.y, player.w, player.h);
-    ctx.fillStyle = '#222';    ctx.fillRect(player.x+player.w-10, player.y+10, 6, 6);
-    ctx.fillStyle = '#654321'; for(const o of obs){ ctx.fillRect(o.x, o.y, o.w, o.h); }
+
+    // FOX (replaces the old orange box)
+    drawFox(ctx, player.x, player.y, player.w, player.h, player.vy, player.onGround, GY);
+
+    // obstacles
+    ctx.fillStyle = '#654321';
+    for(const o of obs){ ctx.fillRect(o.x, o.y, o.w, o.h); }
   }
 
   // boot
